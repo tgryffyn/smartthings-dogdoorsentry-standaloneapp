@@ -15,7 +15,8 @@ SmartSense Multi + Graph
 SmartSense Multi Sensor
 
 
-#Installation - Software
+## Installation - Software
+
 1. Open the smartthings-dogdoorsentry-standaloneapp.txt file in your favorite text editor.  Hopefully the line breaks aren't stupid.  If everything is doublespaced or on a single line, try a proper programming IDE or something.
 
 2. Log in to SmartThings API: https://graph.api.smartthings.com/login/auth
@@ -32,7 +33,7 @@ Options:
   Device Orientation - Detecting swing works the same when the device is horizontal and vertical, but changes a bit if you're mounting the sensor on it's front or back (battery side).  You might mount something on it's front or back if it's on a hatch mounted in a ceiling or floor (weird, but I had the data for it so why not include it.. any boat dwellers with a hatch in a ceiling for their dog/cat? hah)
   Dog's name (optional) - If a name is provided, it will say "Zwei came in/went out" verus "The doggo came in/went out".  If you have a cat, feel free to modify the code.  I love cats as well as dogs, but having a bunch of extra code to put "cat" in place of "dog" seemed silly.  :)
   
-#Installation - Hardrware
+## Installation - Hardware
 1. The location on the dog door is kind of important. If you mount it too close to the top hinge, the sensor won't swing far enough to trigger this app.  I mounted mine roughly 2/3 of the way down and on the left side (so Zwei's nose wasn't hitting it every time he went out).  He's managed to come in by pushing the corner on the opposite side a bit more and not triggering the sensor, so it's not perfect. Making sure the sensor is somewhere not in the dog's way but somewhere it'll definitely swing when they use the door is important.
 
 2. I used double-sided foam tape the length of the sensor (a smaller piece didn't work as well) on the dog door flap. Make sure to clean the spot on the dog door you plan to stick it to as I'm sure dirt and slobber and noseprints make tape not work so well
@@ -41,7 +42,7 @@ Options:
 
 Note: As mentioned above, you don't need the second part of the sensor, just the larger part that has the accelerometer in it. We're not measuring open/close here, we're measuring X, Y, Z orientation. 
 
-# Notes
+## Notes
 The current tolerance is set so if the sensor needs to swing to between 400 and 900 (out of 1000).  I use absolute values so that also covers -900 to -400.  Between 900 and 1000 (or I set 1100 for some reason), it's considered closed (although I don't do anything with that information).
 
 I do attempt to prevent multiple triggers on one event by putting in a 4 second delay, but either Zwei's taking longer than 4 seconds (could be, he's 13+ years old now) or that part's not working... so I do get multiple alerts sometimes still.
@@ -49,7 +50,7 @@ I do attempt to prevent multiple triggers on one event by putting in a 4 second 
 Funny enough, whether you mount it vertically (like an I shape) or horizontally (like the top of a T) on a vertical/traditional dog door, it uses the same orientation to detect swing (z axis), but if you mount it on a horizontally mounted hatch/flap/something, it uses the z axis.  So that was easy to deal with (horiz vs vert on a vert dog door).
 
 
-# To Do
+## To Do
 1. Create a proper device with a nice graphical tile showing current doggo status
 2. Fix the time delay thing to prevent multiple alerts
 
