@@ -1,0 +1,271 @@
+/**
+ *  Dog Door Sentry
+ *
+ *  Copyright 2016 Trevor Gryffyn
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ */
+
+/**
+Stable: 2016-06-04
+
+Should work with the following device handler types:
+SmartSense Garage Door Multi
+SmartSense Multi
+SmartSense Multi + Graph
+SmartSense Multi Sensor
+*/
+
+definition(
+    name: "Dog Door Sentry (Standalone)",
+    namespace: "tgryffyn",
+    author: "Trevor Gryffyn",
+    description: "Keep track of not just when the dog door is used, but which direction it swings.  Is the dog in or out?  Did something else come in at some point?",
+    category: "Family",
+    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
+    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
+    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png"
+    )
+/*
+simulator {
+    	status "H1 (upsidedown): +X":  "x: 1000, y: 0, z: 0, rssi: 100, lqi: 255"
+		status "H2 (rightsideup): -X": "x: -1000, y: 0, z: 0, rssi: 100, lqi: 255"
+		status "V1 (left): +Y":        "x: 0, y: 1000, z: 0, rssi: 100, lqi: 255"
+        status "V2 (right): -Y":       "x: 0, y: -1000, z: 0, rssi: 100, lqi: 255"
+		status "Back: +Z":             "x: 0, y: 0, z: 1000, rssi: 100, lqi: 255"
+        status "Front: -Z":            "x: 0, y: 0, z: -1000, rssi: 100, lqi: 255"
+        
+        status "Default In: +Z":   "x: 0, y: 0, z: -600, rssi: 100, lqi: 255"
+        status "Default Out: -Z":  "x: 0, y: 0, z: 600, rssi: 100, lqi: 255"
+        
+        status "Switched In: +X":  "x: 600, y: 0, z: 0, rssi: 100, lqi: 255"
+        status "Switched Out: +X": "x: -600, y: 0, z: 0, rssi: 100, lqi: 255"
+	}
+*/
+
+preferences {
+	section("Select Sensor:") {
+		input "cfg_thesensor", "capability.threeAxis", required: true, title: "Which sensor do you want to use?"
+	}
+    
+    section("Send Push Notification?") {
+        input "cfg_sendPush", "bool", required: false, title: "Send Push Notification?"
+    }
+    
+    section("Notify on all activity?") {
+        input "cfg_allactivity", "bool", required: false, title: "Notify on any activation of sensor, not necessarily just dog out/in?"
+    }
+    
+    section("Send a text message to this number (optional)") {
+        input "cfg_phone", "phone", required: false
+    }
+
+	section("In/Out or Out/In:") {
+		input "cfg_inoutORoutin", "bool", required: false, title: "Switch in/out designation?"
+	}
+
+    section("Device Orientation:") {
+        input "cfg_deviceOrientation", "bool", required: false, title: "Enable front/back mounting?", description: "Detecting swing works the same when the device is horizontal and vertical, but changes a bit if you're mounting the sensor on it's front or back (battery side)"
+    }
+    
+    section("Dog's name (optional)") {
+        input "cfg_dognamecustom", "text", required: false
+    }    
+}
+
+def installed() {
+	log.debug "Installed with settings: ${settings}"
+
+	initialize()
+}
+
+def updated() {
+	log.debug "Updated with settings: ${settings}"
+
+	unsubscribe()
+	initialize()
+}
+
+def initialize() {
+	state.debug = true;
+	state.lastmessaged3a = now()
+    state.lastmessagedacc = now()
+    state.dogcurrentstatus = "unknown"
+
+    subscribe(cfg_thesensor, "threeAxis", threeAxisHandler)
+    subscribe(cfg_thesensor, "acceleration", accelHandler)
+    
+    if (state.debug) log.debug "Initialized"
+    if (state.debug) log.debug "Initial last message 3a: " + state.lastmessaged3a
+    if (state.debug) log.debug "Initial last message acc: " + state.lastmessagedacc
+}
+
+def accelHandler(evt) {
+    def msg = ""
+    def timebufferacc = 4000
+    def activemessage = "Dog door active"
+    def inactivemessage = ""
+
+	// ################# Determine if dog has gone in or out
+    
+    if (evt.value == "active") {
+		if (state.debug) log.debug "accelHandler triggered " + evt.value
+		msg = activemessage
+    
+    	if (state.debug) log.debug "Evt.value: " + evt.value + " Accel msg received: " + msg
+    
+    	// ################# Send message
+    	if (state.debug) log.debug "Now: " + now() + " Last ACC send: " + state.lastmessagedacc + " Diff: " + (now() - state.lastmessagedacc) + " Time buffer: " + timebufferacc
+    	if (cfg_allactivity == true && msg && (now() - state.lastmessagedacc) > timebufferacc) {
+			sendMessage(msg)
+        	state.lastmessagedacc = now()
+        	if (state.debug) log.debug "Sent ACC, reset last sent to: " + state.lastmessagedacc
+    	}
+    } else {
+    	if (state.debug) log.debug "Evt.value: " + evt.value + " Inactive"
+    }
+}
+
+def threeAxisHandler(evt) {
+    def msg = ""
+    def inorout = ""
+    def dogname = ""
+    def timebuffer3a = 4000
+    def dognamedefault = "Doggo"
+    def statetext = [in: " came in", out: " went out"]
+
+	// ################# Determine if dog has gone in or out
+	// if (state.debug) log.debug "threeAxisHandler triggered " + evt.value
+	inorout = parseThreeAxisMessage(evt.value)
+    
+    if (inorout) {
+        dogname = (cfg_dognamecustom) ?: dognamedefault
+        msg = dogname + statetext[inorout]
+        if (state.debug) log.debug "Message generated: " + msg
+    }
+    
+    // if (state.debug) log.debug "3Axis inorout received: " + inorout
+    // msg = generateMessage(inorout)
+    
+    // ################# Send message
+    if (state.debug) log.debug "Now: " + now() + " Last 3A send: " + state.lastmessaged3a + " Diff: " + (now() - state.lastmessaged3a) + " Time buffer: " + timebuffer3a
+    if (msg && (now() - state.lastmessaged3a) > timebuffer3a) {
+		sendMessage(msg)
+        state.lastmessaged3a = now()
+        if (state.debug) log.debug "Sent ACC, reset last sent to: " + state.lastmessaged3a
+    }
+}
+
+private sendMessage(String msg) {
+
+    if (cfg_sendPush == true) {
+        sendPush(msg)
+        log.debug "Sending push notification '" + msg + "'" // because cfg_sendPush = " + cfg_sendPush
+    }
+
+    if (cfg_phone) {
+        sendSms(cfg_phone, msg)
+           log.debug "Sending SMS '" + msg + "'" // because cfg_phone = " + cfg_phone
+    }
+}
+
+private String parseThreeAxisMessage(String description) {
+    def result = ""
+	def xyzResults = [x: 0, y: 0, z: 0]
+	def parts = description.split(',')
+
+	def unsignedX = parts[0].trim().toInteger()
+	def signedX = unsignedX > 32767 ? unsignedX - 65536 : unsignedX
+	xyzResults.x = signedX
+
+	def unsignedY = parts[1].trim().toInteger()
+	def signedY = unsignedY > 32767 ? unsignedY - 65536 : unsignedY
+	xyzResults.y = signedY
+
+	def unsignedZ = parts[2].trim().toInteger()
+	def signedZ = unsignedZ > 32767 ? unsignedZ - 65536 : unsignedZ
+	xyzResults.z = signedZ
+
+	result = GetInOrOut(xyzResults, description)
+    
+    // if (state.debug) log.debug "Result value: " + result
+
+	result
+}
+
+//private String parseAccelMessage(String description) {
+//    def result = ""
+//	def parts = description.split(',')
+//    
+//    if (description ==~ /acceleration:.*rssi:.*lqi:.*/) {
+//        parts.each { part ->
+//            part = part.trim()
+//            if (part.startsWith('acceleration:')) {
+//                result = part.endsWith("1") ? "Dog door used" : ""  // nothing on inactive so no message is sent
+//            }
+//        }
+//    }
+//
+//	result
+//}
+
+
+private String GetInOrOut(results, description) {
+	def name = "threeAxis"
+	def value = ""
+    def firststate = "in"
+    def secondstate = "out"
+    def tempstate = ""
+    def detectaxis = results.z
+    def output = ""
+    
+    if (cfg_deviceOrientation == true) {
+        detectaxis = results.x
+    }
+
+    switch ((detectaxis).abs()) {
+    	case 400..<900:
+            if (cfg_inoutORoutin == true) {
+//            	(firststate,secondstate)=[secondstate,firststate] // should work in Groovy, fails to compile though
+                tempstate = secondstate
+                secondstate = firststate
+                firststate = tempstate
+            }
+        	output = (detectaxis > 0) ? firststate : secondstate
+            value = output + " ${results.x},${results.y},${results.z}"
+            state.dogcurrentstatus = output
+            
+            if (state.debug) log.debug "Door Open: " + value + " Output: " + output
+            
+        	break
+        case 900..1100:
+        	value = (results.z > 0) ? "Back Side " + value : "Front Side " + value
+            if (state.debug) log.debug "Door Closed Z: " + value
+        	break
+        default:
+        	switch (true) {
+            	case { (results.x).abs() > 900 }:
+                	value = (results.x > 0) ? "Upside Down (Horizontal) " + value : "Rightside Up (Horizontal) " + value
+                	break
+                case { (results.y).abs() > 900 }:
+                	value = (results.y > 0) ? "Left Side (Vertical) " + value : "Right Side (Vertical) " + value
+                	break
+                default:
+                	value = "Unknown " + value
+                	break
+            }
+            if (state.debug) log.debug "Door Closed: " + value
+        	break
+    }
+    
+	output
+
+}
